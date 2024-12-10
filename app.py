@@ -150,7 +150,7 @@ def main():
     if query:
         with st.spinner("Getting Response"):    
     
-            index_path = r'C:\Users\aipro\Documents\Muscat\output_index'
+            index_path = r'output_index'
             
             chain = generate_response(index_path)
             if query:
