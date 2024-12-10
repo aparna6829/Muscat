@@ -1,8 +1,13 @@
-from deep_translator import GoogleTranslator
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores.faiss import FAISS
-import requests
+from langchain_community.vectorstores.faiss import FAISS
+from langchain_openai import ChatOpenAI
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.chains import create_retrieval_chain
 import streamlit as st
+
+api_key = st.secrets["OPENAI_API_KEY"]
 
 st.set_page_config(page_icon="😶‍🌫️", page_title="QA", layout="wide")
 
@@ -87,34 +92,32 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-@st.cache_resource(show_spinner=False)
-def generate_response(index_path, query):
+def generate_response(index_path):
     """Loads the FAISS index and retrieves content for the given query."""
-    try:
-        # Initialize embeddings and load the FAISS index
-        embeddings = HuggingFaceEmbeddings()
-        search = FAISS.load_local(index_path, embeddings=embeddings, allow_dangerous_deserialization=True)
-        
-        # Use the retriever to get relevant documents
-        retriever = search.as_retriever(search_type="similarity", search_kwargs={"k": 5})  # Limit to top 5 docs
-        relevant_docs = retriever.get_relevant_documents(query)  # Use appropriate method
-        
-        # Combine content from relevant documents
-        if relevant_docs:
-            content = "\n".join([doc.page_content for doc in relevant_docs])
-            return content
-        else:
-            return None
+    # Initialize embeddings and load the FAISS index
+    embeddings = HuggingFaceEmbeddings()
+    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.2, api_key=api_key)
+    vector = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+    db = vector.as_retriever()
+    template = """You are Question-answering bot specialized in answering user Queries. You possess an thorough understanding of the index provided and gives the most
+                accurate response possible.Your response should be contextual.
+    <context>
+    {context}
+    </context>
 
-    except Exception as e:
-        print(f"Error generating response from FAISS index: {e}")
-        return None
-    
+    Question: {input}
+    """
+
+    prompt = ChatPromptTemplate.from_template(template=template)
+    # Create a chain
+    doc_chain = create_stuff_documents_chain(llm, prompt)
+    chain = create_retrieval_chain(db, doc_chain)
+    return chain
+
 def set_query(query):
         st.session_state.query_input = query
         st.rerun()
-
-
+    
 def main():
         # Initialize session state for the query if it doesn't exist
     if "query_input" not in st.session_state:
@@ -145,49 +148,23 @@ def main():
             set_query("What is the total storage capacity available in the Oracle Server X9-2 when configured with NVMe SSDs?")
     
     if query:
-        with st.spinner("Getting Response"):
-     
+        with st.spinner("Getting Response"):    
     
-            index_path = "output_index"
-
-
-                
-            # Retrieve content based on the query
-            content = generate_response(index_path, query)
-            if not content:
-                print("No relevant content found.")
-
-            # Limit content length for prompt
-            content_snippet = content[:1500] 
+            index_path = r'C:\Users\aipro\Documents\Muscat\output_index'
             
-            # Construct the prompt
-            prompt_input = (
-                f"You are a Question-Answering bot specialized in answering user queries based on a given index. "
-                f"Your responses should be accurate and contextual.\n"
-                f"User Query: {query}\nContent: {content_snippet}"
-            )
-
-            # Send the request to the external API
-            try:
-                response = requests.post(
-                    "http://192.168.25.131:8008/generate",
-                    json={"prompt": prompt_input, "model": "mistral:latest"}
-                )
-                
-                # Check for successful response
-                if response.status_code == 200:
-                    generated_response = response.json().get('response', "No response provided by the model.")
-                    print("Generated Response:", generated_response.strip())
-                    with st.expander("Response"):
-                        st.write("Generated Response:", generated_response.strip())
-                else:
-                    print(f"API Request failed with status code: {response.status_code}")
-                    print("Error:", response.text)
-                    st.write("Error:", response.text)
-
-            except Exception as e:
-                print(f"Error sending request to the API: {e}")
-
+            chain = generate_response(index_path)
+            if query:
+                with st.expander("Response"):
+                    response = chain.invoke({"input": query})
+                    out = response['answer']
+                    print(out)
+                    st.write(out)
+                    if 'context' in response:
+                        sources = [doc.metadata['source'] for doc in response['context']]
+                        print("Sources:", sources[0])
+                        st.write("Sources:", sources[0])
+                    else:
+                        print("No sources found.")
 
 if __name__ == "__main__":
     main()

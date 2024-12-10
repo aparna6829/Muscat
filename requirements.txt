@@ -5,3 +5,4 @@ langchain
 sentence_transformers
 streamlit
 faiss-cpu
+langchain_openai
