@@ -148,7 +148,7 @@ def main():
         with st.spinner("Getting Response"):
      
     
-            index_path = ""
+            index_path = "output_index"
 
 
                 
